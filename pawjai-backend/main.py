@@ -51,6 +51,29 @@ class AdoptionCreate(BaseModel):
     cat_id: int
     adopter_id: int = 1  
 
+# 📌 โมเดลสำหรับสมัครสมาชิก
+class UserRegister(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: str
+
+# 📌 โมเดลสำหรับเข้าสู่ระบบ
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class StatusUpdate(BaseModel):
+    status: str
+    
+class ChatMessage(BaseModel):
+    sender_id: int
+    message: str
+
+class ChatMessage(BaseModel):
+    sender_id: int
+    message: str
+
 # ==========================================
 # 4. API ดึงข้อมูล (GET Endpoints)
 # ==========================================
@@ -59,7 +82,6 @@ class AdoptionCreate(BaseModel):
 def get_provinces():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    # 📌 อัปเดต: เรียงตาม sort_order ก่อน แล้วค่อยเรียงตามตัวอักษร
     cursor.execute("SELECT * FROM provinces ORDER BY sort_order ASC, province_name ASC")
     data = cursor.fetchall()
     cursor.close()
@@ -70,7 +92,6 @@ def get_provinces():
 def get_breeds():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    # 📌 อัปเดต: เรียงตาม sort_order ก่อน แล้วค่อยเรียงตามตัวอักษร
     cursor.execute("SELECT * FROM breeds ORDER BY sort_order ASC, breed_name ASC")
     data = cursor.fetchall()
     cursor.close()
@@ -81,7 +102,6 @@ def get_breeds():
 def get_colors():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    # 📌 อัปเดต: เรียงตาม sort_order ก่อน แล้วค่อยเรียงตามตัวอักษร
     cursor.execute("SELECT * FROM colors ORDER BY sort_order ASC, color_name ASC")
     data = cursor.fetchall()
     cursor.close()
@@ -92,17 +112,18 @@ def get_colors():
 def get_cats():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    # 📌 อัปเดต: ลบเงื่อนไข WHERE c.status = 'หาบ้าน' ออก เพื่อให้การ์ดยังแสดงอยู่แม้จะถูกรับเลี้ยงแล้ว
+    # 📌 อัปเดต: เพิ่มการดึง c.owner_id และ c.status กลับไปให้ Frontend ด้วย
     sql = """
         SELECT 
             c.cat_id, c.cat_name, c.gender, c.age_range, c.vaccine_status,
             b.breed_name, col.color_name, p.province_name, img.image_path,
-            c.description, c.created_at
+            c.description, c.status, c.owner_id, c.created_at
         FROM cats c
         LEFT JOIN breeds b ON c.breed_id = b.breed_id
         LEFT JOIN colors col ON c.color_id = col.color_id
         LEFT JOIN provinces p ON c.province_id = p.province_id
         LEFT JOIN cat_images img ON c.cat_id = img.cat_id AND img.is_cover = TRUE
-        WHERE c.status = 'หาบ้าน'
         ORDER BY c.created_at DESC
     """
     cursor.execute(sql)
@@ -129,8 +150,69 @@ def get_comments(cat_id: int):
     return data
 
 # ==========================================
-# 5. API รับข้อมูลเข้า (POST Endpoints)
+# 5. API รับข้อมูลเข้า (POST & DELETE Endpoints)
 # ==========================================
+
+# 📌 API ลงทะเบียน (Register)
+@app.post("/api/register", status_code=201)
+def register_user(user: UserRegister):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        sql = """
+            INSERT INTO users (full_name, email, password, phone) 
+            VALUES (%s, %s, %s, %s) 
+            RETURNING user_id, full_name, email, phone
+        """
+        cursor.execute(sql, (user.full_name, user.email, user.password, user.phone))
+        new_user = cursor.fetchone()
+        conn.commit()
+        
+        return {
+            "status": "success", 
+            "message": "ลงทะเบียนสำเร็จ!", 
+            "user": {
+                "id": new_user["user_id"], 
+                "name": new_user["full_name"], 
+                "email": new_user["email"],
+                "phone": new_user["phone"]
+            }
+        }
+    except Exception as e:
+        conn.rollback()
+        if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+            return {"status": "error", "message": "อีเมลนี้มีผู้ใช้งานแล้ว"}
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+
+# 📌 API เข้าสู่ระบบ (Login)
+@app.post("/api/login")
+def login_user(user: UserLogin):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    sql = "SELECT user_id, full_name, email, phone FROM users WHERE email = %s AND password = %s"
+    cursor.execute(sql, (user.email, user.password))
+    found_user = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+
+    if found_user:
+        return {
+            "status": "success",
+            "message": "เข้าสู่ระบบสำเร็จ",
+            "user": {
+                "id": found_user["user_id"],
+                "name": found_user["full_name"],
+                "email": found_user["email"],
+                "phone": found_user["phone"]
+            }
+        }
+    else:
+        return {"status": "error", "message": "อีเมลหรือรหัสผ่านไม่ถูกต้อง"}
 
 @app.post("/api/cats/{cat_id}/comments", status_code=201)
 def add_comment(cat_id: int, comment: CommentCreate):
@@ -219,6 +301,116 @@ async def create_cat_post(
         conn.commit()
         return {"status": "success", "message": "สร้างโพสต์พร้อมรูปภาพสำเร็จ!", "cat_id": new_cat_id}
 
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+
+# 📌 API สำหรับลบโพสต์แมว
+@app.delete("/api/cats/{cat_id}")
+def delete_cat(cat_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # ลบข้อมูลแมว (อาจจะต้องลบรูปหรือข้อมูลจากตารางลูกก่อน ถ้าไม่ได้ตั้งค่า ON DELETE CASCADE ไว้ใน DB)
+        cursor.execute("DELETE FROM cats WHERE cat_id = %s RETURNING cat_id", (cat_id,))
+        deleted_id = cursor.fetchone()
+        
+        if deleted_id:
+            conn.commit()
+            return {"status": "success", "message": "ลบโพสต์สำเร็จ"}
+        else:
+            return {"status": "error", "message": "ไม่พบแมวที่ต้องการลบ"}
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+
+# 📌 API สำหรับเปลี่ยนสถานะแมว (เช่น หาบ้าน -> ได้บ้านแล้ว)
+@app.put("/api/cats/{cat_id}/status")
+def update_cat_status(cat_id: int, status_update: StatusUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE cats SET status = %s WHERE cat_id = %s", (status_update.status, cat_id))
+        conn.commit()
+        return {"status": "success", "message": f"อัปเดตสถานะเป็น {status_update.status} สำเร็จ!"}
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+# ==========================================
+# 📌 API ระบบแชทส่วนตัว (Private Chat)
+# ==========================================
+
+@app.get("/api/cats/{cat_id}/chat")
+def get_chat_messages(cat_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    sql = """
+        SELECT cm.message_id, cm.message, cm.created_at, u.full_name, cm.sender_id
+        FROM chat_messages cm
+        JOIN users u ON cm.sender_id = u.user_id
+        WHERE cm.cat_id = %s
+        ORDER BY cm.created_at ASC
+    """
+    cursor.execute(sql, (cat_id,))
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+
+@app.post("/api/cats/{cat_id}/chat", status_code=201)
+def send_chat_message(cat_id: int, chat: ChatMessage):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        sql = "INSERT INTO chat_messages (cat_id, sender_id, message) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (cat_id, chat.sender_id, chat.message))
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+# ==========================================
+# 📌 API ระบบแชทส่วนตัว (Private Chat)
+# ==========================================
+
+@app.get("/api/cats/{cat_id}/chat")
+def get_chat_messages(cat_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    sql = """
+        SELECT cm.message_id, cm.message, cm.created_at, u.full_name, cm.sender_id
+        FROM chat_messages cm
+        JOIN users u ON cm.sender_id = u.user_id
+        WHERE cm.cat_id = %s
+        ORDER BY cm.created_at ASC
+    """
+    cursor.execute(sql, (cat_id,))
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+
+@app.post("/api/cats/{cat_id}/chat", status_code=201)
+def send_chat_message(cat_id: int, chat: ChatMessage):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        sql = "INSERT INTO chat_messages (cat_id, sender_id, message) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (cat_id, chat.sender_id, chat.message))
+        conn.commit()
+        return {"status": "success"}
     except Exception as e:
         conn.rollback()
         return {"status": "error", "message": str(e)}

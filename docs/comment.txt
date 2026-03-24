@@ -1,0 +1,91 @@
+# ==========================================
+# โครงสร้างข้อมูล (Models) สำหรับคอมเมนต์และใบรับเลี้ยง
+# ==========================================
+
+class CommentCreate(BaseModel):
+    user_id: int = 1  # สมมติให้ User ID 1 เป็นคนคอมเมนต์ไปก่อน
+    message: str
+
+class AdoptionCreate(BaseModel):
+    cat_id: int
+    adopter_id: int = 1  # สมมติให้ User ID 1 เป็นคนกดรับเลี้ยง
+
+# ==========================================
+# 5. API สำหรับระบบคอมเมนต์ (Comments)
+# ==========================================
+
+# ดึงคอมเมนต์ทั้งหมดของแมวตัวนั้นๆ
+@app.get("/api/cats/{cat_id}/comments")
+def get_comments(cat_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # ดึงข้อความคอมเมนต์ พร้อมกับชื่อคนที่พิมพ์คอมเมนต์นั้น
+    sql = """
+        SELECT c.comment_id, c.message, c.created_at, u.full_name
+        FROM comments c
+        JOIN users u ON c.user_id = u.user_id
+        WHERE c.cat_id = %s
+        ORDER BY c.created_at ASC
+    """
+    cursor.execute(sql, (cat_id,))
+    data = cursor.fetchall()
+    
+    cursor.close()
+    conn.close()
+    return data
+
+# โพสต์คอมเมนต์ใหม่
+@app.post("/api/cats/{cat_id}/comments", status_code=201)
+def add_comment(cat_id: int, comment: CommentCreate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        sql = "INSERT INTO comments (cat_id, user_id, message) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (cat_id, comment.user_id, comment.message))
+        
+        conn.commit()
+        return {"status": "success", "message": "เพิ่มคอมเมนต์สำเร็จ!"}
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
+
+# ==========================================
+# 6. API สำหรับระบบรับเลี้ยง (Adoptions)
+# ==========================================
+
+# กดปุ่ม "ติดต่อขอรับเลี้ยง"
+@app.post("/api/adoptions", status_code=201)
+def request_adoption(adoption: AdoptionCreate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. สร้างใบรับเลี้ยงในตาราง adoptions
+        insert_sql = """
+            INSERT INTO adoptions (cat_id, adopter_id, status) 
+            VALUES (%s, %s, 'Pending') RETURNING adoption_id
+        """
+        cursor.execute(insert_sql, (adoption.cat_id, adoption.adopter_id))
+        adoption_id = cursor.fetchone()[0]
+
+        # 2. เปลี่ยนสถานะน้องแมวในตาราง cats เป็น "กำลังเจรจา" (เพื่อให้หน้าเว็บรู้ว่าแมวตัวนี้มีคนจองคิวคุยแล้ว)
+        update_cat_sql = "UPDATE cats SET status = 'กำลังเจรจา' WHERE cat_id = %s"
+        cursor.execute(update_cat_sql, (adoption.cat_id,))
+
+        conn.commit()
+        return {
+            "status": "success", 
+            "message": "ส่งคำขอรับเลี้ยงสำเร็จ! ระบบได้เปิดช่องแชทให้แล้ว", 
+            "adoption_id": adoption_id
+        }
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()

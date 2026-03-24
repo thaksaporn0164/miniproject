@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom' // 📌 นำเข้าเครื่องมือสร้างลิงก์สำหรับเปลี่ยนหน้า
+import { Link } from 'react-router-dom'
 
 export default function AdoptFeed() {
   const [cats, setCats] = useState([])
@@ -16,14 +16,17 @@ export default function AdoptFeed() {
     fetch('http://localhost:8000/api/cats')
       .then(res => res.json())
       .then(data => setCats(data))
+      .catch(err => console.error("Error fetching cats:", err))
 
     fetch('http://localhost:8000/api/provinces')
       .then(res => res.json())
       .then(data => setProvinces(data))
+      .catch(err => console.error("Error fetching provinces:", err))
 
     fetch('http://localhost:8000/api/colors')
       .then(res => res.json())
       .then(data => setColors(data))
+      .catch(err => console.error("Error fetching colors:", err))
   }, [])
 
   // ฟังก์ชันกรองแมวตามที่ผู้ใช้เลือกใน Dropdown
@@ -37,7 +40,7 @@ export default function AdoptFeed() {
   return (
     <div className="min-h-screen bg-[#FFFDF9] font-sans pb-20 pt-10">
       
-      {/* 📌 แถบตัวกรองค้นหา (เหมือนเดิม) */}
+      {/* 📌 แถบตัวกรองค้นหา */}
       <div className="flex justify-center mb-12">
         <div className="flex bg-white shadow-md rounded-full px-8 py-3 gap-8 items-center border border-gray-100">
           
@@ -73,11 +76,20 @@ export default function AdoptFeed() {
           
           {filteredCats.length > 0 ? (
             filteredCats.map(cat => (
-              // 🐈 การ์ดแมว 1 ตัว (ดีไซน์เดิม)
-              <div key={cat.cat_id} className="bg-[#FCF5EB] rounded-[30px] overflow-hidden shadow-sm hover:shadow-md transition duration-300 border border-[#F0E6D8] flex flex-col">
+              <div key={cat.cat_id} className="bg-[#FCF5EB] rounded-[30px] overflow-hidden shadow-sm hover:shadow-md transition duration-300 border border-[#F0E6D8] flex flex-col relative">
                 
-                {/* รูปแมว */}
-                <div className="h-48 overflow-hidden bg-gray-200 m-3 rounded-[20px]">
+                {/* 📌 รูปแมว พร้อมป้ายสถานะ (Tag) */}
+                <div className="relative h-48 overflow-hidden bg-gray-200 m-3 rounded-[20px]">
+                  
+                  {/* ป้ายสถานะมุมขวาบนของการ์ด */}
+                  <div className={`absolute top-3 right-3 px-3 py-1 text-xs font-bold rounded-full shadow-sm z-10 ${
+                      cat.status === 'หาบ้าน' ? 'bg-green-100 text-green-700' : 
+                      cat.status === 'กำลังเจรจา' ? 'bg-yellow-100 text-yellow-700' : 
+                      'bg-blue-100 text-blue-700'
+                  }`}>
+                      {cat.status || 'หาบ้าน'}
+                  </div>
+
                   {cat.image_path ? (
                     <img src={cat.image_path} alt="cat" className="w-full h-full object-cover" />
                   ) : (
@@ -88,16 +100,16 @@ export default function AdoptFeed() {
                 {/* ข้อมูลด้านล่าง */}
                 <div className="p-5 pt-2 flex-grow flex flex-col justify-between">
                   <div>
-                    <p className="font-bold text-gray-800 mb-1">เพศ : {cat.gender || '-'}</p>
-                    <p className="font-bold text-gray-800 mb-1">สี : {cat.color_name || '-'}</p>
-                    <p className="font-bold text-gray-800">จังหวัด : {cat.province_name || '-'}</p>
+                    <h3 className="font-black text-[#8E6B53] text-xl mb-2">{cat.cat_name}</h3>
+                    <p className="font-bold text-gray-800 mb-1 text-sm">เพศ : <span className="font-normal text-gray-600">{cat.gender || '-'}</span></p>
+                    <p className="font-bold text-gray-800 mb-1 text-sm">สี : <span className="font-normal text-gray-600">{cat.color_name || '-'}</span></p>
+                    <p className="font-bold text-gray-800 text-sm">จังหวัด : <span className="font-normal text-gray-600">{cat.province_name || '-'}</span></p>
                   </div>
                   
                   <div className="flex justify-end mt-4">
-                    {/* 📌 เปลี่ยนปุ่มดูโปรไฟล์เป็น <Link> ของจริง เพื่อเด้งไปหน้ารายละเอียดแมวตัวนั้น */}
                     <Link
-                      to={`/adopt/cats/${cat.cat_id}`} // ใช้ id ของแมวตัวนั้นมาเป็น URL dynamic
-                      className="px-6 py-2 bg-[#D1B894] text-white font-bold rounded-full hover:bg-[#A07D5A] transition shadow-sm text-sm" // ใช้ CSS เดิมเป๊ะๆ
+                      to={`/adopt/cats/${cat.cat_id}`} 
+                      className="px-6 py-2 bg-[#D1B894] text-white font-bold rounded-full hover:bg-[#A07D5A] transition shadow-sm text-sm"
                     >
                       ดูโปรไฟล์
                     </Link>
